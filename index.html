@@ -670,16 +670,37 @@ async function sbLoadWords(){try{
   DBCARDS=pr.filter(r=>r.en_word&&r.zh_word&&!seenE.has(r.en_word.toLowerCase())&&!seenZ.has(r.zh_word)).map(r=>({id:'p'+r.id,en:r.en_word,ipa:r.en_ipa||'',el:CEN[r.cefr_level]||2,zh:r.zh_word,py:r.pinyin||'',hl:HSKN[r.hsk_level]||(r.hsk_level==='HSK 1–4'?4:6),vi:r.meaning_vi||'',ee:r.example_en||'',ze:r.example_zh||'',src:'Supabase'}));
   F=null;render();
 }catch(e){console.warn('sbLoadWords',e);toast('Chưa tải được kho từ từ Supabase, đang dùng bản có sẵn trong trang.')}}
-function sbSchedule(){if(!SBU)return;sbDirty=true;clearTimeout(sbTimer);sbTimer=setTimeout(sbPush,2000)}
+function sbSchedule(){if(!SBU)return;sbDirty=true;clearTimeout(sbTimer);sbTimer=setTimeout(sbPush,1000)}
 async function sbPush(){if(!SBU||sbBusy||!sbDirty)return;sbBusy=true;
   try{while(sbDirty){sbDirty=false;const {error}=await SBC.from('user_state').upsert({user_id:SBU.id,data:S,updated_at:new Date().toISOString()});if(error)throw error}
-    syncMsg='Đã lưu tiến độ lên tài khoản '+SBU.email+'. Mở trên máy khác và đăng nhập cùng email để học tiếp.'}
+    sbLast=Date.now();syncMsg='Tự động đồng bộ với tài khoản '+SBU.email+' · lần cuối '+new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})+'.'}
   catch(e){console.warn('sbPush',e);syncMsg='Chưa lưu được lên Supabase ('+(e.message||'lỗi mạng')+'). Tiến độ vẫn lưu trên trình duyệt này.'}
   sbBusy=false;const s=$('#syncline');if(s)s.textContent=syncMsg}
-async function sbPull(){try{const {data,error}=await SBC.from('user_state').select('data').eq('user_id',SBU.id).maybeSingle();if(error)throw error;
-  const d=data&&data.data;
-  if(d&&(d.ts||0)>S.ts){S=Object.assign({ts:0,srs:{},log:{},custom:[]},d);S.cfg=Object.assign({hsk:'2027-05-15',cae:'2027-09-15',nnew:0,dir:'mix'},d.cfg);try{localStorage.setItem(LSK,JSON.stringify(S))}catch(e){}F=null;X=null;syncMsg='Đã tải tiến độ từ tài khoản '+SBU.email+'.';render();sbLoadWords()}
-  else{sbDirty=true;sbPush()}}catch(e){console.warn('sbPull',e);syncMsg='Đăng nhập rồi nhưng chưa đọc được tiến độ ('+(e.message||'lỗi')+'). Kiểm tra bảng user_state trên Supabase.';render()}}
+function srsBetter(x,y){return x[3]>y[3]||(x[3]===y[3]&&x[1]>y[1])}
+function mergeState(a,b){const o=JSON.parse(JSON.stringify(a));o.srs=o.srs||{};o.log=o.log||{};o.custom=o.custom||[];
+  for(const k in (b.srs||{})){const x=b.srs[k];if(!o.srs[k]||srsBetter(x,o.srs[k]))o.srs[k]=x}
+  for(const d in (b.log||{})){const x=b.log[d],y=o.log[d];if(!y)o.log[d]=x;else o.log[d]={n:Math.max(y.n||0,x.n||0),r:Math.max(y.r||0,x.r||0),ex:Object.assign({},x.ex||{},y.ex||{})}}
+  const ids=new Set(o.custom.map(c=>c.id));for(const c of (b.custom||[]))if(!ids.has(c.id))o.custom.push(c);
+  if((b.ts||0)>(a.ts||0))o.cfg=Object.assign({},o.cfg,b.cfg);o.ts=Math.max(a.ts||0,b.ts||0);return o}
+const stKey=s=>JSON.stringify([s.srs,s.log,s.custom.length,s.cfg]);
+let sbPulling=false,sbLast=0;
+async function sbPull(){if(!SBU||sbPulling)return;sbPulling=true;
+  try{if(sbDirty){await sbPush()}
+    const {data,error}=await SBC.from('user_state').select('data').eq('user_id',SBU.id).maybeSingle();if(error)throw error;
+    const d=data&&data.data;
+    if(!d){sbDirty=true;await sbPush()}
+    else{const m=mergeState(S,d),kLocal=stKey(S),kRemote=stKey(Object.assign({srs:{},log:{},custom:[],cfg:{}},d)),kM=stKey(m);
+      if(kM!==kLocal){S=m;S.cfg=Object.assign({hsk:'2027-05-15',cae:'2027-09-15',nnew:0,dir:'mix'},S.cfg);try{localStorage.setItem(LSK,JSON.stringify(S))}catch(e){}
+        if(!F&&!PF&&!X)render();else{const s=$('#syncline');if(s)s.textContent=syncMsg}}
+      if(kM!==kRemote){sbDirty=true;await sbPush()}}
+    sbLast=Date.now();syncMsg='Tự động đồng bộ với tài khoản '+SBU.email+' · lần cuối '+new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})+'.';
+    const s=$('#syncline');if(s)s.textContent=syncMsg}
+  catch(e){console.warn('sbPull',e);syncMsg='Chưa đồng bộ được ('+(e.message||'lỗi mạng')+'). Nếu lỗi nhắc tới user_state, hãy tạo bảng user_state trên Supabase.';const s=$('#syncline');if(s)s.textContent=syncMsg}
+  sbPulling=false}
+document.addEventListener('visibilitychange',()=>{if(!SBU)return;if(document.visibilityState==='visible')sbPull();else if(sbDirty)sbPush()});
+window.addEventListener('focus',()=>{if(SBU&&Date.now()-sbLast>5000)sbPull()});
+window.addEventListener('pagehide',()=>{if(SBU&&sbDirty)sbPush()});
+setInterval(()=>{if(SBU&&document.visibilityState==='visible')sbPull()},30000);
 async function initSupabase(){if(window.claude||!window.supabase)return;
   SBC=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,detectSessionInUrl:true}});
   syncMsg='Đăng nhập bằng email ở trang Lộ trình để đồng bộ tiến độ giữa máy tính và điện thoại.';
@@ -725,7 +746,7 @@ const ACT={
  bulk(){const el=+$('#f_el').value,hl=+$('#f_hl').value,src=$('#f_src').value,from=S.custom.length;let n=0;
    for(const line of $('#bulk').value.split('\n')){const [en,zh,vi]=line.split('|').map(s=>(s||'').trim());if(en&&zh&&addCard({en,el,zh,py:'',hl,vi:vi||'',ee:'',ze:''},src,true))n++}
    if(n){save(from);F=null}WF.res=`<p>Đã nhập ${n} từ. Dòng thiếu tiếng Anh hoặc tiếng Trung, hoặc từ đã có, bị bỏ qua.</p>`;render()},
- pack(){aiPack()}, phstart(b){phStart(b.dataset.k)}, phquiz(b){PF=null;startX('ph-'+b.dataset.k)}, phflip(){PF.flip=true;render()}, phg(b){phGrade(+b.dataset.g)}, phhome(){PF=null;location.hash='phrases';render()}, sblogin(){sbLogin()}, sblogout(){sbLogout()}, sbsync(){sbDirty=true;sbPush();toast('Đang đồng bộ…')}, topup(){topUp()}, prep(){prep()},
+ pack(){aiPack()}, phstart(b){phStart(b.dataset.k)}, phquiz(b){PF=null;startX('ph-'+b.dataset.k)}, phflip(){PF.flip=true;render()}, phg(b){phGrade(+b.dataset.g)}, phhome(){PF=null;location.hash='phrases';render()}, sblogin(){sbLogin()}, sblogout(){sbLogout()}, sbsync(){sbPull().then(()=>toast('Đã đồng bộ.'));toast('Đang đồng bộ…')}, topup(){topUp()}, prep(){prep()},
  async gostudy(){if(AI&&freshCards().length<Math.max(0,plan().nnew-L().n)&&(zqueue().length||equeue().length))await prep();location.hash='study'}, morew(){WF.n+=60;render()},
  del(b){const i=S.custom.findIndex(c=>c.id===b.dataset.id);if(i<0)return;delete S.srs[S.custom[i].id];S.custom.splice(i,1);save(0);F=null;render()},
  cfg(){const h=$('#c_hsk').value,c=$('#c_cae').value;if(!h||!c)return toast('Chọn đủ hai ngày thi.');S.cfg={hsk:h,cae:c,nnew:Math.max(0,Math.min(50,+$('#c_n').value||0)),dir:$('#c_dir').value};save();F=null;render();toast('Đã lưu tuỳ chỉnh.')}
