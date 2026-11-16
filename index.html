@@ -708,11 +708,23 @@ async function initSupabase(){if(window.claude||!window.supabase)return;
   sbLoadWords();sbLoadPhrases()}
 async function sbLogin(){const em=($('#sbmail')||{}).value;if(!em||!/^\S+@\S+\.\S+$/.test(em.trim()))return toast('Nhập đúng địa chỉ email.');
   const {error}=await SBC.auth.signInWithOtp({email:em.trim(),options:{emailRedirectTo:location.origin+location.pathname}});
-  if(error)return toast('Chưa gửi được email: '+error.message);sbMsg='Đã gửi link đăng nhập tới '+em.trim()+'. Mở email trên máy này và bấm vào link.';render()}
+  if(error){sbMsg=/rate limit/i.test(error.message)?'Supabase miễn phí chỉ gửi được vài email mỗi giờ và đã hết lượt. Hãy đăng nhập bằng mật khẩu thay vì link email.':'Chưa gửi được email: '+error.message;return render()}sbMsg='Đã gửi link đăng nhập tới '+em.trim()+'. Mở email trên máy này và bấm vào link.';render()}
 async function sbLogout(){await SBC.auth.signOut();SBU=null;render()}
+async function sbPass(mode){const em=(($('#sbmail')||{}).value||'').trim(),pw=($('#sbpass')||{}).value||'';
+  if(!/^\S+@\S+\.\S+$/.test(em))return toast('Nhập đúng địa chỉ email.');if(pw.length<6)return toast('Mật khẩu cần ít nhất 6 ký tự.');
+  if(mode==='in'){const {error}=await SBC.auth.signInWithPassword({email:em,password:pw});
+    if(error){sbMsg=/invalid/i.test(error.message)?'Sai email hoặc mật khẩu. Nếu chưa có tài khoản, bấm "Tạo tài khoản". Nếu trước đây bạn đăng nhập bằng link email, hãy đăng nhập trên máy cũ rồi đặt mật khẩu ở đây.':'Chưa đăng nhập được: '+error.message;render()}}
+  else{const {data,error}=await SBC.auth.signUp({email:em,password:pw});
+    if(error){sbMsg=/registered|exists/i.test(error.message)?'Email này đã có tài khoản. Bấm "Đăng nhập" bằng mật khẩu, hoặc đặt mật khẩu trên máy đang đăng nhập.':'Chưa tạo được tài khoản: '+error.message;render()}
+    else if(!data.session){sbMsg='Supabase đang bắt xác nhận email nên chưa đăng nhập được. Tắt "Confirm email" trong Supabase (Authentication → Sign In / Providers → Email) rồi thử lại.';render()}}}
+async function sbSetPass(){const pw=($('#sbnewpass')||{}).value||'';if(pw.length<6)return toast('Mật khẩu cần ít nhất 6 ký tự.');
+  const {error}=await SBC.auth.updateUser({password:pw});toast(error?'Chưa đặt được mật khẩu: '+error.message:'Đã đặt mật khẩu. Trên máy khác, đăng nhập bằng email và mật khẩu này.');if(!error)$('#sbnewpass').value=''}
 function vAccount(){if(!SBC)return '';
-  if(SBU)return `<div class="card"><h2>Tài khoản</h2><p>Đang đăng nhập: <b>${esc(SBU.email)}</b></p><p class="muted small" id="syncline">${esc(syncMsg)}</p><div class="btns"><button class="btn" data-a="sbsync">Đồng bộ ngay</button><button class="btn" data-a="sblogout">Đăng xuất</button></div></div>`;
-  return `<div class="card"><h2>Đăng nhập để đồng bộ</h2><p class="muted small">Nhập email, web gửi một link đăng nhập. Dùng cùng email trên máy tính và điện thoại để chung tiến độ.</p><div class="row"><div class="grow"><input type="text" id="sbmail" placeholder="email của bạn" aria-label="Email" autocomplete="email"></div><button class="btn pri" data-a="sblogin">Gửi link đăng nhập</button></div>${sbMsg?`<p class="fb">${esc(sbMsg)}</p>`:''}</div>`}
+  if(SBU)return `<div class="card"><h2>Tài khoản</h2><p>Đang đăng nhập: <b>${esc(SBU.email)}</b></p><p class="muted small" id="syncline">${esc(syncMsg)}</p><div class="btns"><button class="btn" data-a="sbsync">Đồng bộ ngay</button><button class="btn" data-a="sblogout">Đăng xuất</button></div>
+   <div class="row" style="margin-top:12px"><div class="grow"><label>Đặt hoặc đổi mật khẩu (để đăng nhập máy khác không cần email)<input type="password" id="sbnewpass" autocomplete="new-password"></label></div><button class="btn" data-a="sbsetpass">Lưu mật khẩu</button></div></div>`;
+  return `<div class="card"><h2>Đăng nhập để đồng bộ</h2><p class="muted small">Dùng cùng email và mật khẩu trên máy tính và điện thoại để chung tiến độ.</p>
+   <div class="form"><label>Email<input type="text" id="sbmail" autocomplete="email" inputmode="email"></label><label>Mật khẩu (ít nhất 6 ký tự)<input type="password" id="sbpass" autocomplete="current-password"></label></div>
+   <div class="btns"><button class="btn pri" data-a="sbin">Đăng nhập</button><button class="btn" data-a="sbup">Tạo tài khoản</button><button class="btn vi" data-a="sblogin">Gửi link qua email</button></div>${sbMsg?`<p class="fb">${esc(sbMsg)}</p>`:''}</div>`}
 
 /* ===== router + actions ===== */
 const VIEWS={today:vToday,study:vStudy,practice:vPractice,words:vWords,plan:vPlan,phrases:vPhrases};
@@ -746,7 +758,7 @@ const ACT={
  bulk(){const el=+$('#f_el').value,hl=+$('#f_hl').value,src=$('#f_src').value,from=S.custom.length;let n=0;
    for(const line of $('#bulk').value.split('\n')){const [en,zh,vi]=line.split('|').map(s=>(s||'').trim());if(en&&zh&&addCard({en,el,zh,py:'',hl,vi:vi||'',ee:'',ze:''},src,true))n++}
    if(n){save(from);F=null}WF.res=`<p>Đã nhập ${n} từ. Dòng thiếu tiếng Anh hoặc tiếng Trung, hoặc từ đã có, bị bỏ qua.</p>`;render()},
- pack(){aiPack()}, phstart(b){phStart(b.dataset.k)}, phquiz(b){PF=null;startX('ph-'+b.dataset.k)}, phflip(){PF.flip=true;render()}, phg(b){phGrade(+b.dataset.g)}, phhome(){PF=null;location.hash='phrases';render()}, sblogin(){sbLogin()}, sblogout(){sbLogout()}, sbsync(){sbPull().then(()=>toast('Đã đồng bộ.'));toast('Đang đồng bộ…')}, topup(){topUp()}, prep(){prep()},
+ pack(){aiPack()}, sbin(){sbPass('in')}, sbup(){sbPass('up')}, sbsetpass(){sbSetPass()}, phstart(b){phStart(b.dataset.k)}, phquiz(b){PF=null;startX('ph-'+b.dataset.k)}, phflip(){PF.flip=true;render()}, phg(b){phGrade(+b.dataset.g)}, phhome(){PF=null;location.hash='phrases';render()}, sblogin(){sbLogin()}, sblogout(){sbLogout()}, sbsync(){sbPull().then(()=>toast('Đã đồng bộ.'));toast('Đang đồng bộ…')}, topup(){topUp()}, prep(){prep()},
  async gostudy(){if(AI&&freshCards().length<Math.max(0,plan().nnew-L().n)&&(zqueue().length||equeue().length))await prep();location.hash='study'}, morew(){WF.n+=60;render()},
  del(b){const i=S.custom.findIndex(c=>c.id===b.dataset.id);if(i<0)return;delete S.srs[S.custom[i].id];S.custom.splice(i,1);save(0);F=null;render()},
  cfg(){const h=$('#c_hsk').value,c=$('#c_cae').value;if(!h||!c)return toast('Chọn đủ hai ngày thi.');S.cfg={hsk:h,cae:c,nnew:Math.max(0,Math.min(50,+$('#c_n').value||0)),dir:$('#c_dir').value};save();F=null;render();toast('Đã lưu tuỳ chỉnh.')}
