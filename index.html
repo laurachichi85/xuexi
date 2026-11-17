@@ -388,7 +388,7 @@ const fmtMoney=n=>Math.round(n).toLocaleString('vi-VN')+'đ';
 function cheer2(){const d=document.createElement('div');d.className='catrun';d.innerHTML='<span class="meow">Giỏi quá, meo~</span>'+catHTML(110);document.body.appendChild(d);setTimeout(()=>d.remove(),4500)}
 function showWallet(){petRefresh();const w=$('#wallet');if(w){w.textContent='Ví '+fmtMoney(S.wallet||0);w.classList.toggle('zero',!(S.wallet>0))}}
 let petX=0,petY=0,petTX=0,petTY=0,petOn=false;
-function money(d,silent){if(!d)return;if(d>0&&fullNow()<20)d=Math.round(d/2);const before=S.wallet||0;S.wallet=Math.max(0,before+d);showWallet();
+function money(d,silent){if(!d)return;if(d>0&&fullNow()<20)d=Math.round(d/2);const before=S.wallet||0;addW(d);showWallet();
   const el=document.createElement('div');el.className='money '+(d>0?'up':'down');el.textContent=(d>0?'+':'−')+fmtMoney(Math.abs(d));
   el.style.left=(petX+20)+'px';el.style.top=(petY-30)+'px';document.body.appendChild(el);setTimeout(()=>el.remove(),1400);
   const pet=$('#pet');if(pet){pet.classList.remove('hop','shake');void pet.offsetWidth;pet.classList.add(d>0?'hop':'shake')}
@@ -445,6 +445,11 @@ async function topUp(){const q=zqueue();if(!q.length||!AI)return;const m=$('#tup
 let S={ts:0,srs:{},log:{},cfg:{hsk:'2027-05-15',cae:'2027-09-15',nnew:0,dir:'mix'},custom:[]};
 const LSK='songhanh_v1';
 try{const d=JSON.parse(localStorage.getItem(LSK));if(d&&d.ts){S=Object.assign(S,d);S.cfg=Object.assign({hsk:'2027-05-15',cae:'2027-09-15',nnew:0,dir:'mix'},d.cfg)}}catch(e){}
+let DEV='';try{DEV=localStorage.getItem('songhanh_dev')||'';if(!DEV){DEV='d'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);localStorage.setItem('songhanh_dev',DEV)}}catch(e){DEV='d0'}
+function wCalc(s){if(!s.cnt){s.cnt={};s.wbase=Math.max(0,s.wallet||0)}let t=s.wbase||0;for(const k in s.cnt){const c=s.cnt[k];t+=(c[0]||0)-(c[1]||0)}return Math.max(0,t)}
+function wInit(){S.wallet=wCalc(S)}
+function addW(d){wInit();if(!d)return 0;if(d<0)d=-Math.min(-d,S.wallet);if(!d)return 0;const c=S.cnt[DEV]=S.cnt[DEV]||[0,0];if(d>0)c[0]+=d;else c[1]+=-d;S.wallet=wCalc(S);return d}
+wInit();
 let cdb=null,base='',dirtyState=false,dirtyFrom=Infinity,saving=false,syncMsg='Tiến độ đang lưu trên trình duyệt này.';
 let TTS=null,AI=null,DICT=null,dictOn=false;
 let DBCARDS=[];
@@ -469,7 +474,7 @@ async function initCloud(){if(!window.claude||!window.claude.use)return;
     const snap=await Promise.race([db.doc(base+'/state').get(),new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),10000))]);
     const d=snap.exists?snap.data():null;
     if(d&&(d.ts||0)>S.ts){const custom=[];for(let i=0;i<(d.chunks||0);i++){const w=await db.doc(base+'/w'+i).get();if(w.exists)custom.push(...(w.data().list||[]))}
-      S={ts:d.ts,srs:clone(d.srs||{}),log:clone(d.log||{}),cfg:Object.assign(S.cfg,clone(d.cfg||{})),custom:clone(custom)};
+      S=Object.assign(S,{ts:d.ts,srs:clone(d.srs||{}),log:clone(d.log||{}),cfg:Object.assign(S.cfg,clone(d.cfg||{})),custom:clone(custom)});wInit();
       try{localStorage.setItem(LSK,JSON.stringify(S))}catch(e){}
       cdb=db;syncMsg='Tiến độ đã lưu vào tài khoản Claude của bạn, mở trên máy khác vẫn còn.';F=null;render()}
     else{cdb=db;if(S.ts>((d&&d.ts)||0)){dirtyState=true;dirtyFrom=0;push()}else syncMsg='Tiến độ sẽ lưu vào tài khoản Claude của bạn.'}
@@ -794,11 +799,11 @@ function vMini(c){if(!F.mini||F.mini.id!==c.id)F.mini={id:c.id,m:makeMini(c),pic
    ${pick!=null?`<p class="small" style="margin-top:8px"><b>${esc(m.it.ph)}</b> · <span class="han">${esc(m.it.zh)}</span> ${sndBtn(m.it.ph,'en','Nghe cụm')}</p>`:''}</div>`}
 function snapF(c){F.hist=F.hist||[];const l=L();F.hist.push({q:F.q.slice(),re:[...F.re],seen:[...(F.seen||[])],key:c.id,srs:S.srs[c.id]?S.srs[c.id].slice():null,l:{n:l.n,r:l.r,pn:l.pn||0},wallet:S.wallet||0,d:F.d});if(F.hist.length>50)F.hist.shift()}
 function backF(){const s=F&&F.hist&&F.hist.pop();if(!s)return;F.q=s.q;F.re=new Set(s.re);F.seen=new Set(s.seen);if(s.srs)S.srs[s.key]=s.srs;else delete S.srs[s.key];
-  const l=L();l.n=s.l.n;l.r=s.l.r;l.pn=s.l.pn;S.wallet=s.wallet;F.d=s.d;F.flip=true;F.mini=null;save();render()}
+  const l=L();l.n=s.l.n;l.r=s.l.r;l.pn=s.l.pn;addW(s.wallet-(S.wallet||0));F.d=s.d;F.flip=true;F.mini=null;save();render()}
 function skipF(){if(!F||F.q.length<2)return;F.q.push(F.q.shift());F.flip=false;F.d=null;F.mini=null;render()}
 const navF=()=>`<div class="btns" style="justify-content:space-between;margin:0 0 8px"><button class="btn" data-a="fback" ${F.hist&&F.hist.length?'':'disabled'}>‹ Thẻ trước</button><button class="btn" data-a="fskip" ${F.q.length>1?'':'disabled'}>Bỏ qua, xem thẻ sau ›</button></div>`;
 function snapPF(p){PF.hist=PF.hist||[];const k=phKey(p);PF.hist.push({q:PF.q.slice(),re:[...PF.re],key:k,srs:S.srs[k]?S.srs[k].slice():null,wallet:S.wallet||0})}
-function backPF(){const s=PF&&PF.hist&&PF.hist.pop();if(!s)return;PF.q=s.q;PF.re=new Set(s.re);if(s.srs)S.srs[s.key]=s.srs;else delete S.srs[s.key];S.wallet=s.wallet;PF.flip=true;save();render()}
+function backPF(){const s=PF&&PF.hist&&PF.hist.pop();if(!s)return;PF.q=s.q;PF.re=new Set(s.re);if(s.srs)S.srs[s.key]=s.srs;else delete S.srs[s.key];addW(s.wallet-(S.wallet||0));PF.flip=true;save();render()}
 function skipPF(){if(!PF||PF.q.length<2)return;PF.q.push(PF.q.shift());PF.flip=false;render()}
 const navPF=()=>`<div class="btns" style="justify-content:space-between;margin:0 0 8px"><button class="btn" data-a="pfback" ${PF.hist&&PF.hist.length?'':'disabled'}>‹ Thẻ trước</button><button class="btn" data-a="pfskip" ${PF.q.length>1?'':'disabled'}>Bỏ qua, xem thẻ sau ›</button></div>`;
 document.addEventListener('keydown',e=>{if(/INPUT|TEXTAREA|SELECT/.test((e.target.tagName||'')))return;const r=location.hash.slice(1);
@@ -812,7 +817,7 @@ const decay=(v,at,perDay)=>Math.max(0,Math.min(100,v-(Date.now()-at)/864e5*perDa
 const fullNow=()=>{const p=petState();return decay(p.full,p.at,30)};
 const funNow=()=>{const p=petState();return decay(p.fun,p.funAt,25)};
 function touch(){S.ts=Date.now();try{localStorage.setItem(LSK,JSON.stringify(S))}catch(e){}if(typeof sbSchedule==='function')sbSchedule()}
-function pay(price){if((S.wallet||0)<price){toast('Ví chưa đủ tiền. Còn thiếu '+fmtMoney(price-(S.wallet||0))+'. Làm thêm bài tập để kiếm nhé!');return false}S.wallet-=price;showWallet();
+function pay(price){if((S.wallet||0)<price){toast('Ví chưa đủ tiền. Còn thiếu '+fmtMoney(price-(S.wallet||0))+'. Làm thêm bài tập để kiếm nhé!');return false}addW(-price);showWallet();
   const el=document.createElement('div');el.className='money down';el.textContent='−'+fmtMoney(price);el.style.left=(petX+20)+'px';el.style.top=(petY-30)+'px';document.body.appendChild(el);setTimeout(()=>el.remove(),1400);return true}
 function buyItem(id){const it=ITEM[id];petState();if(S.shop.owned.includes(id))return;if(!pay(it.p))return;S.shop.owned.push(id);S.shop.wear[it.slot]=id;touch();petSig='';showWallet();toast('Đã mua '+it.n+'!');render()}
 function wearItem(id){const it=ITEM[id];petState();if(S.shop.wear[it.slot]===id)delete S.shop.wear[it.slot];else S.shop.wear[it.slot]=id;touch();petSig='';showWallet();render()}
@@ -827,7 +832,7 @@ function debt(){if(S.debt&&S.debt.day===TODAY)return S.debt;const p=plan(),activ
   if(active.length){for(let d=Math.max(active[0],TODAY-7);d<TODAY;d++){const k=dayFromNum(d),l=(S.log||{})[k]||{},sw=Math.max(0,p.nnew-(l.n||0)),sp=Math.max(0,pnew()-(l.pn||0));
     if(sw>0||sp>0){days.push(k);mw+=sw;mp+=sp;if(!S.pen[k]){const none=!(l.n||l.pn||l.r);fine+=none?10000:5000;S.pen[k]=1}}}}
   mw=Math.min(mw,p.nnew,Math.max(0,freshCards().length-p.nnew));mp=Math.min(mp,pnew(),Math.max(0,phNewOrder().length-pnew()));
-  S.debt={day:TODAY,w:mw,p:mp,days,fine};if(fine){S.wallet=Math.max(0,(S.wallet||0)-fine)}touch();return S.debt}
+  S.debt={day:TODAY,w:mw,p:mp,days,fine};if(fine){addW(-fine)}touch();return S.debt}
 const strict=()=>S.cfg.strict!=='off';
 function locked(){const d=debt(),l=L();return strict()&&(d.w>0||d.p>0)&&((l.n||0)<d.w||(l.pn||0)<d.p)}
 const fmtDay=k=>{const [y,m,d]=k.split('-');return d+'/'+m};
@@ -868,11 +873,14 @@ async function sbPush(){if(!SBU||sbBusy||!sbDirty)return;sbBusy=true;
 function srsBetter(x,y){return x[3]>y[3]||(x[3]===y[3]&&x[1]>y[1])}
 function mergeState(a,b){const o=JSON.parse(JSON.stringify(a));o.srs=o.srs||{};o.log=o.log||{};o.custom=o.custom||[];
   for(const k in (b.srs||{})){const x=b.srs[k];if(!o.srs[k]||srsBetter(x,o.srs[k]))o.srs[k]=x}
-  for(const d in (b.log||{})){const x=b.log[d],y=o.log[d];if(!y)o.log[d]=x;else o.log[d]={n:Math.max(y.n||0,x.n||0),r:Math.max(y.r||0,x.r||0),ex:Object.assign({},x.ex||{},y.ex||{})}}
+  for(const d in (b.log||{})){const x=b.log[d],y=o.log[d];if(!y)o.log[d]=x;else o.log[d]={n:Math.max(y.n||0,x.n||0),r:Math.max(y.r||0,x.r||0),pn:Math.max(y.pn||0,x.pn||0),ex:Object.assign({},x.ex||{},y.ex||{})}}
   const ids=new Set(o.custom.map(c=>c.id));for(const c of (b.custom||[]))if(!ids.has(c.id))o.custom.push(c);
-  if((b.ts||0)>(a.ts||0)){o.cfg=Object.assign({},o.cfg,b.cfg);o.wallet=b.wallet||0;o.pet=b.pet||o.pet;o.debt=b.debt||o.debt;if(b.shop)o.shop=Object.assign({},o.shop,{wear:b.shop.wear||{}})}else o.wallet=a.wallet||0;
-  o.shop=o.shop||{owned:[],wear:{}};o.shop.owned=[...new Set([...(o.shop.owned||[]),...((b.shop&&b.shop.owned)||[])])];o.pen=Object.assign({},b.pen||{},o.pen||{});o.ts=Math.max(a.ts||0,b.ts||0);return o}
-const stKey=s=>JSON.stringify([s.srs,s.log,s.custom.length,s.cfg,s.wallet||0,s.shop||null,s.pet||null,s.pen||null]);
+  if((b.ts||0)>(a.ts||0)){o.cfg=Object.assign({},o.cfg,b.cfg);o.pet=b.pet||o.pet;o.debt=b.debt||o.debt;if(b.shop)o.shop=Object.assign({},o.shop,{wear:b.shop.wear||{}})}
+  o.shop=o.shop||{owned:[],wear:{}};o.shop.owned=[...new Set([...(o.shop.owned||[]),...((b.shop&&b.shop.owned)||[])])];o.pen=Object.assign({},b.pen||{},o.pen||{});
+  {const ca=JSON.parse(JSON.stringify(a)),cb=JSON.parse(JSON.stringify(b));wCalc(ca);wCalc(cb);o.wbase=Math.max(ca.wbase||0,cb.wbase||0);o.cnt={};
+   for(const s of [ca.cnt,cb.cnt])for(const k in s){const x=o.cnt[k]||[0,0];o.cnt[k]=[Math.max(x[0],s[k][0]||0),Math.max(x[1],s[k][1]||0)]}o.wallet=wCalc(o)}
+  o.ts=Math.max(a.ts||0,b.ts||0);return o}
+const stKey=s=>JSON.stringify([s.srs,s.log,s.custom.length,s.cfg,s.wallet||0,s.cnt||null,s.shop||null,s.pet||null,s.pen||null]);
 let sbPulling=false,sbLast=0;
 async function sbPull(){if(!SBU||sbPulling)return;sbPulling=true;
   try{if(sbDirty){await sbPush()}
@@ -880,7 +888,7 @@ async function sbPull(){if(!SBU||sbPulling)return;sbPulling=true;
     const d=data&&data.data;
     if(!d){sbDirty=true;await sbPush()}
     else{const m=mergeState(S,d),kLocal=stKey(S),kRemote=stKey(Object.assign({srs:{},log:{},custom:[],cfg:{}},d)),kM=stKey(m);
-      if(kM!==kLocal){S=m;S.cfg=Object.assign({hsk:'2027-05-15',cae:'2027-09-15',nnew:0,dir:'mix'},S.cfg);try{localStorage.setItem(LSK,JSON.stringify(S))}catch(e){}
+      if(kM!==kLocal){S=m;wInit();S.cfg=Object.assign({hsk:'2027-05-15',cae:'2027-09-15',nnew:0,dir:'mix'},S.cfg);try{localStorage.setItem(LSK,JSON.stringify(S))}catch(e){}
         if(!F&&!PF&&!X)render();else{const s=$('#syncline');if(s)s.textContent=syncMsg}}
       if(kM!==kRemote){sbDirty=true;await sbPush()}}
     sbLast=Date.now();syncMsg='Tự động đồng bộ với tài khoản '+SBU.email+' · lần cuối '+new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})+'.';
